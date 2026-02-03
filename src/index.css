@@ -1,5 +1,11 @@
 /* src/index.css */
 
+/* Prevent iOS Safari/Chrome from “auto boosting” text sizes differently per page */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 /* --------- Base reset + sensible defaults --------- */
 :root {
   color-scheme: light;
@@ -178,6 +184,33 @@ select {
   display: none;
 }
 
+/* --------- Dashboard helpers --------- */
+.dashTopGrid {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (min-width: 769px) {
+  .dashTopGrid {
+    grid-template-columns: 180px 1fr 360px;
+    align-items: end;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashTopGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Stable container for Recharts on mobile (prevents clipping/collapse) */
+.chartBox {
+  width: 100%;
+  min-height: 280px;
+  overflow: hidden;
+}
+
 /* --------- Mobile polish --------- */
 @media (max-width: 768px) {
   .appShell {
@@ -232,7 +265,7 @@ select {
     text-overflow: ellipsis;
   }
 
-  /* Horizontal nav pills */
+  /* Horizontal nav pills — keep consistent size on every page */
   .mobileNav {
     display: flex;
     gap: 8px;
@@ -252,6 +285,11 @@ select {
     background: #fff;
     padding: 8px 12px;
     border-radius: 999px;
+
+    /* key fixes */
+    font-size: 14px;
+    line-height: 1;
+    flex: 0 0 auto; /* prevents “giant bubbles” on some pages */
   }
 
   .mobileNav .navLinkActive {

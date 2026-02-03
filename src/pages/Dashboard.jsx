@@ -1,359 +1,261 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+// src/pages/Dashboard.jsx
+import React, { useMemo, useState } from "react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from "recharts";
 
-import { CATEGORY_COLORS, money } from "../lib/categories.js";
-import { getAnchorISO, getBiweekEndISO, getBiweekStartISO, toISODateOnly } from "../lib/dates.js";
-import { filterTransactions, pieDataFromTotals, totalSpent, totalsByCategory } from "../lib/summarize.js";
-import { buildTransactionsCSV, downloadTextFile } from "../lib/csv.js";
+import { CATEGORY_COLORS, CATEGORY_NAMES, money } from "../lib/categories";
+import {
+  getAnchorISO,
+  getBiweekStartISO,
+  getBiweekEndISO,
+} from "../lib/dates";
+import {
+  filterTransactions,
+  totalsByCategory,
+  totalSpent,
+  pieDataFromTotals,
+} from "../lib/summarize";
+import { buildTransactionsCSV, downloadTextFile } from "../lib/csv";
 
-import { useCloudTransactions } from "../hooks/useCloudTransactions.js";
-import { useCloudSettings } from "../hooks/useCloudSettings.js";
-import { useCloudIncomeByBiweek } from "../hooks/useCloudIncomeByBiweek.js";
+import { useCloudTransactions } from "../hooks/useCloudTransactions";
+import { useCloudSettings } from "../hooks/useCloudSettings";
+import { useCloudIncomeByBiweek } from "../hooks/useCloudIncomeByBiweek";
 
 export default function Dashboard() {
-  const todayISO = toISODateOnly(new Date());
-  const [searchParams] = useSearchParams();
-
-  // ✅ CLOUD
-  const { transactions, loading: txLoading } = useCloudTransactions();
-  const { settings, loading: settingsLoading } = useCloudSettings();
-  const { incomeByBiweek, loading: incomeLoading, setForBiweek } = useCloudIncomeByBiweek();
+  const { settings, saveSettings } = useCloudSettings();
+  const { transactions } = useCloudTransactions();
 
   const [view, setView] = useState("biweek");
-  const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
+  const [selectedDateISO, setSelectedDateISO] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
 
-  // Paycheck edit-lock state
-  const [isEditingPaycheck, setIsEditingPaycheck] = useState(false);
+  const [editingPaycheck, setEditingPaycheck] = useState(false);
   const [paycheckDraft, setPaycheckDraft] = useState("");
 
-  // Read URL params like: /?view=month&date=2026-02-01
-  useEffect(() => {
-    const v = searchParams.get("view");
-    const d = searchParams.get("date");
-
-    if (v === "biweek" || v === "month" || v === "year") setView(v);
-    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setSelectedDateISO(d);
-  }, [searchParams]);
-
-  const anchorISO = useMemo(() => getAnchorISO(settings), [settings]);
-
-  const biweekStart = useMemo(
-    () => getBiweekStartISO(selectedDateISO, anchorISO),
-    [selectedDateISO, anchorISO]
-  );
-  const biweekEnd = useMemo(() => getBiweekEndISO(biweekStart), [biweekStart]);
-
-  const paycheck = useMemo(() => {
-    const specific = incomeByBiweek[biweekStart];
-    if (specific !== undefined && specific !== null) return Number(specific) || 0;
-    return Number(settings?.defaultPaycheck || 0);
-  }, [incomeByBiweek, biweekStart, settings]);
-
-  // Keep draft synced + lock editing when biweek changes
-  useEffect(() => {
-    setIsEditingPaycheck(false);
-    setPaycheckDraft(String(paycheck));
-  }, [biweekStart, paycheck]);
+  const anchorISO = settings?.anchorPaycheckStartISO || getAnchorISO();
+  const biweekStart = getBiweekStartISO(anchorISO, selectedDateISO);
+  const biweekEnd = getBiweekEndISO(anchorISO, selectedDateISO);
 
   const filtered = useMemo(() => {
-    return filterTransactions(transactions, view, selectedDateISO, biweekStart, biweekEnd);
-  }, [transactions, view, selectedDateISO, biweekStart, biweekEnd]);
+    return filterTransactions(transactions || [], {
+      view,
+      anchorISO,
+      selectedDateISO,
+      biweekStart,
+      biweekEnd,
+    });
+  }, [transactions, view, anchorISO, selectedDateISO, biweekStart, biweekEnd]);
 
+  const spent = useMemo(() => totalSpent(filtered), [filtered]);
   const totals = useMemo(() => totalsByCategory(filtered), [filtered]);
   const pieData = useMemo(() => pieDataFromTotals(totals), [totals]);
-  const spent = useMemo(() => totalSpent(filtered), [filtered]);
 
-  const remaining = useMemo(() => (view === "biweek" ? paycheck - spent : null), [view, paycheck, spent]);
+  const { income, saveIncome } = useCloudIncomeByBiweek({
+    anchorISO,
+    biweekStartISO: biweekStart,
+  });
 
-  const header = useMemo(() => {
-    if (view === "biweek") return `Biweek: ${biweekStart} → ${biweekEnd}`;
-    if (view === "month") return `Month: ${selectedDateISO.slice(0, 7)}`;
-    return `Year: ${selectedDateISO.slice(0, 4)}`;
-  }, [view, biweekStart, biweekEnd, selectedDateISO]);
+  const paycheck = Number(income?.amount || 0);
+  const remaining = Math.max(0, paycheck - spent);
 
-  function startEditPaycheck() {
-    setPaycheckDraft(String(paycheck));
-    setIsEditingPaycheck(true);
-  }
-
-  function cancelEditPaycheck() {
-    setPaycheckDraft(String(paycheck));
-    setIsEditingPaycheck(false);
-  }
-
-  async function saveEditPaycheck() {
-    const n = Number(paycheckDraft);
-    if (!Number.isFinite(n) || n < 0) {
-      alert("Paycheck must be a valid number (0 or more).");
-      return;
-    }
-    await setForBiweek(biweekStart, n); // ✅ Cloud save
-    setIsEditingPaycheck(false);
-  }
+  const limits = settings?.categoryLimits || {};
 
   function exportCSV() {
-    const now = new Date().toISOString();
-
-    const title =
-      view === "biweek" ? "Biweek Report" : view === "month" ? "Monthly Report" : "Yearly Report";
-
-    const range =
-      view === "biweek"
-        ? `${biweekStart} to ${biweekEnd}`
-        : view === "month"
-        ? `${selectedDateISO.slice(0, 7)}`
-        : `${selectedDateISO.slice(0, 4)}`;
-
-    const csv = buildTransactionsCSV(filtered, { title, range, generatedAt: now });
-    const safeRange = range.replace(/\s+/g, "_").replace(/:/g, "-");
-    downloadTextFile(`spending_${view}_${safeRange}.csv`, csv);
+    const csv = buildTransactionsCSV(filtered, {
+      title: "Spending Report",
+      range: `${biweekStart} → ${biweekEnd}`,
+      generatedAt: new Date().toISOString(),
+    });
+    downloadTextFile(`spending_${biweekStart}.csv`, csv);
   }
 
-  /* -------------------- Limits -------------------- */
-  // Bars should match the dashboard view (year doesn't have limits, so default to month)
-  const limitPeriod = view === "biweek" ? "biweek" : "month";
-  const categoryLimitsRaw = settings?.categoryLimits || {};
-
-  const categoryLimits = useMemo(() => {
-    const out = {};
-    for (const [k, v] of Object.entries(categoryLimitsRaw)) {
-      const n = Number(v);
-      if (Number.isFinite(n) && n > 0) out[k] = n;
-    }
-    return out;
-  }, [categoryLimitsRaw]);
-
-  const limitFiltered = useMemo(() => {
-    return filterTransactions(transactions, limitPeriod, selectedDateISO, biweekStart, biweekEnd);
-  }, [transactions, limitPeriod, selectedDateISO, biweekStart, biweekEnd]);
-
-  const limitTotals = useMemo(() => totalsByCategory(limitFiltered), [limitFiltered]);
-
-  const limitHeader = useMemo(() => {
-    if (limitPeriod === "biweek") return `Limits (biweek ${biweekStart} → ${biweekEnd})`;
-    return `Limits (month ${selectedDateISO.slice(0, 7)})`;
-  }, [limitPeriod, biweekStart, biweekEnd, selectedDateISO]);
-
-  const syncing = txLoading || settingsLoading || incomeLoading;
+  async function savePaycheckValue() {
+    const num = Number(paycheckDraft);
+    if (!Number.isFinite(num) || num < 0) return;
+    await saveIncome({ amount: num });
+    setEditingPaycheck(false);
+  }
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      {/* Controls Panel */}
-      <div style={panel}>
-        <div style={grid3}>
-          <div>
-            <label style={label}>View</label>
-            <select value={view} onChange={(e) => setView(e.target.value)} style={input}>
-              <option value="biweek">Biweek</option>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-            </select>
+    <div style={{ display: "grid", gap: 16 }}>
+      {/* TOP GRID */}
+      <div className="dashTopGrid">
+        {/* VIEW */}
+        <Card>
+          <Label>View</Label>
+          <select
+            value={view}
+            onChange={(e) => setView(e.target.value)}
+            className="input"
+          >
+            <option value="biweek">Biweek</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+          </select>
+        </Card>
+
+        {/* DATE */}
+        <Card>
+          <Label>Pick a date</Label>
+          <input
+            type="date"
+            value={selectedDateISO}
+            onChange={(e) => setSelectedDateISO(e.target.value)}
+            className="input"
+          />
+          <div style={{ marginTop: 10, fontWeight: 900 }}>
+            Biweek: {biweekStart} → {biweekEnd}
           </div>
+        </Card>
 
-          <div>
-            <label style={label}>Pick a date</label>
-            <input type="date" value={selectedDateISO} onChange={(e) => setSelectedDateISO(e.target.value)} style={input} />
-          </div>
-
-          <div>
-            {view === "biweek" ? (
-              <>
-                <label style={label}>Paycheck for this biweek</label>
-
-                {!isEditingPaycheck ? (
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <div style={lockedValue}>{money(paycheck)}</div>
-                    <button onClick={startEditPaycheck} style={smallBtn}>Edit</button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <input
-                      inputMode="decimal"
-                      value={paycheckDraft}
-                      onChange={(e) => setPaycheckDraft(e.target.value)}
-                      style={input}
-                    />
-                    <button onClick={saveEditPaycheck} style={smallPrimaryBtn}>Save</button>
-                    <button onClick={cancelEditPaycheck} style={smallBtn}>Cancel</button>
-                  </div>
-                )}
-
-                <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-                  Locked by default — click Edit to change.
-                </div>
-              </>
+        {/* PAYCHECK */}
+        <Card>
+          <Label>Paycheck for this biweek</Label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              className="input"
+              disabled={!editingPaycheck}
+              value={
+                editingPaycheck ? paycheckDraft : money(paycheck)
+              }
+              onChange={(e) => setPaycheckDraft(e.target.value)}
+            />
+            {!editingPaycheck ? (
+              <button className="btn" onClick={() => {
+                setPaycheckDraft(String(paycheck));
+                setEditingPaycheck(true);
+              }}>
+                Edit
+              </button>
             ) : (
-              <div style={{ color: "#6b7280", fontSize: 13, paddingTop: 22 }}>
-                Paycheck + Remaining show in <b>Biweek</b> view.
-              </div>
+              <button className="btn" onClick={savePaycheckValue}>
+                Save
+              </button>
             )}
           </div>
-        </div>
-
-        <div style={{ marginTop: 12, fontWeight: 900 }}>
-          {header} {syncing ? <span style={{ color: "#6b7280", fontSize: 12 }}> (syncing…)</span> : null}
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-          Anchor paycheck start: <b>{anchorISO}</b>
-        </div>
-
-        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            Export the transactions currently shown in this view.
-          </div>
-          <button onClick={exportCSV} style={exportBtn}>Export CSV</button>
-        </div>
+          <button className="btn" onClick={exportCSV} style={{ marginTop: 10 }}>
+            Export CSV
+          </button>
+        </Card>
       </div>
 
-      {/* Summary Cards */}
-      <div style={grid3}>
-        <Card title="Total spent" value={money(spent)} />
-        {view === "biweek" ? (
-          <>
-            <Card title="Paycheck" value={money(paycheck)} />
-            <Card title="Remaining" value={money(remaining)} sub={remaining < 0 ? "Over budget" : "On track"} />
-          </>
-        ) : (
-          <>
-            <Card title="Transactions" value={String(filtered.length)} />
-            <Card title="Tip" value={"Switch to Biweek for remaining"} />
-          </>
-        )}
+      {/* SUMMARY */}
+      <div className="grid3">
+        <Stat title="Total spent" value={money(spent)} />
+        <Stat title="Paycheck" value={money(paycheck)} />
+        <Stat title="Remaining" value={money(remaining)} />
       </div>
 
-      {/* Limits Panel */}
-      <div style={panel}>
-        <div style={panelTitle}>{limitHeader}</div>
+      {/* LIMITS */}
+      <Card>
+        <h3>Limits</h3>
+        {CATEGORY_NAMES.map((cat) => {
+          const limit = limits[cat] || 0;
+          const used = totals[cat] || 0;
+          const pct = limit ? Math.min(100, (used / limit) * 100) : 0;
 
-        {Object.keys(categoryLimits).length === 0 ? (
-          <div style={{ color: "#6b7280" }}>
-            No limits set yet. Go to <b>Settings</b> → “Spending limits”.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {Object.entries(categoryLimits).map(([cat, limit]) => {
-              const spentInPeriod = Number(limitTotals[cat] || 0);
-              const pct = limit > 0 ? spentInPeriod / limit : 0;
-              const status = pct >= 1 ? "danger" : pct >= 0.8 ? "warning" : "ok";
-              const diff = limit - spentInPeriod;
+          const color =
+            used > limit
+              ? "#ef4444"
+              : used >= limit * 0.8
+              ? "#f59e0b"
+              : "#22c55e";
 
-              return (
+          return (
+            <div key={cat} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <strong>{cat}</strong>
+                <span>{money(used)} / {money(limit)}</span>
+              </div>
+              <div className="bar">
                 <div
-                  key={cat}
-                  style={{
-                    padding: 12,
-                    borderRadius: 14,
-                    border: "1px solid #e5e7eb",
-                    background: status === "danger" ? "#fef2f2" : status === "warning" ? "#fffbeb" : "transparent",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 999, background: CATEGORY_COLORS[cat], display: "inline-block" }} />
-                      <b>{cat}</b>
-                      {status === "warning" ? <span title="80% reached">🟡</span> : null}
-                      {status === "danger" ? <span title="Over limit">🔴</span> : null}
-                    </div>
-
-                    <div style={{ fontWeight: 900 }}>
-                      {money(spentInPeriod)} / {money(limit)}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 8 }}>
-                    <div style={barBg}>
-                      <div
-                        style={{
-                          ...barFill,
-                          width: `${Math.min(100, Math.round(pct * 100))}%`,
-                          background: BAR_COLORS[status],
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
-                    {diff >= 0 ? <span>{money(diff)} left</span> : <span>{money(Math.abs(diff))} over</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Chart + Totals */}
-      <div style={gridTwo}>
-        <div style={panel}>
-          <div style={panelTitle}>Spending breakdown</div>
-          <div style={{ height: 340 }}>
-            {pieData.length === 0 ? (
-              <div style={{ color: "#6b7280", paddingTop: 40 }}>
-                Add spendings to see a chart.
+                  className="barFill"
+                  style={{ width: `${pct}%`, background: color }}
+                />
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={120} label>
-                    {pieData.map((p) => (
-                      <Cell key={p.name} fill={CATEGORY_COLORS[p.name]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => money(v)} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        <div style={panel}>
-          <div style={panelTitle}>Category totals (current view)</div>
-          {Object.entries(totals).map(([name, value]) => (
-            <div key={name} style={row}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ width: 10, height: 10, borderRadius: 999, background: CATEGORY_COLORS[name] }} />
-                <span>{name}</span>
-              </div>
-              <b>{money(value)}</b>
             </div>
-          ))}
+          );
+        })}
+      </Card>
+
+      {/* PIE */}
+      <Card>
+        <h3>Spending breakdown</h3>
+        <div className="chartBox">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="name"
+                outerRadius="80%"
+                label
+              >
+                {pieData.map((d) => (
+                  <Cell
+                    key={d.name}
+                    fill={CATEGORY_COLORS[d.name] || "#999"}
+                  />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v) => money(v)} />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-      </div>
+      </Card>
+
+      {/* TOTALS */}
+      <Card>
+        <h3>Category totals</h3>
+        {CATEGORY_NAMES.map((cat) => (
+          <div key={cat} style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>{cat}</span>
+            <strong>{money(totals[cat] || 0)}</strong>
+          </div>
+        ))}
+      </Card>
     </div>
   );
 }
 
-function Card({ title, value, sub }) {
+/* ---------- small helpers ---------- */
+
+function Card({ children }) {
   return (
-    <div style={card}>
-      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>{title}</div>
-      <div style={{ fontSize: 20, fontWeight: 900 }}>{value}</div>
-      {sub ? <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>{sub}</div> : null}
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #e5e7eb",
+        borderRadius: 16,
+        padding: 14,
+      }}
+    >
+      {children}
     </div>
   );
 }
 
-/* ---------- styles ---------- */
-const panel = { padding: 16, borderRadius: 16, border: "1px solid #e5e7eb" };
-const panelTitle = { fontWeight: 900, marginBottom: 10 };
-const label = { display: "block", fontSize: 12, color: "#6b7280", marginBottom: 6 };
-const input = { padding: 10, borderRadius: 12, border: "1px solid #e5e7eb", width: "100%" };
+function Stat({ title, value }) {
+  return (
+    <Card>
+      <div style={{ fontSize: 12, color: "#64748b" }}>{title}</div>
+      <div style={{ fontSize: 22, fontWeight: 900 }}>{value}</div>
+    </Card>
+  );
+}
 
-const lockedValue = { padding: "10px 12px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#f8fafc", fontWeight: 900, minWidth: 140 };
-const smallBtn = { padding: "10px 12px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" };
-const smallPrimaryBtn = { padding: "10px 12px", borderRadius: 12, border: "1px solid #111", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" };
-
-const card = { padding: 16, borderRadius: 16, border: "1px solid #e5e7eb" };
-const grid3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, alignItems: "end" };
-const gridTwo = { display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 12 };
-
-const row = { display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f1f5f9" };
-
-const exportBtn = { padding: "10px 14px", borderRadius: 12, border: "1px solid #111", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
-
-const barBg = { height: 10, borderRadius: 999, background: "#f1f5f9", overflow: "hidden" };
-const barFill = { height: "100%", borderRadius: 999 };
-
-const BAR_COLORS = { ok: "#22c55e", warning: "#facc15", danger: "#ef4444" };
+function Label({ children }) {
+  return (
+    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+      {children}
+    </div>
+  );
+}
