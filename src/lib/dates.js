@@ -71,15 +71,20 @@ function toUTCDate(iso) {
   export function biweekLabel(startISO, anchorISO) {
     const a = toUTCDate(anchorISO);
     const s = toUTCDate(startISO);
-    if (!a || !s) {
-      const end = addDaysISO(startISO, 13);
-      return `Biweek (${startISO} → ${end})`;
-    }
+    const end = addDaysISO(startISO, 13);
+  
+    if (!a || !s) return `Biweek (${startISO} → ${end})`;
   
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
-    const idx = Math.floor((s - a) / (14 * MS_PER_DAY));
-    const end = addDaysISO(startISO, 13);
-    return `Biweek ${idx + 1} (${startISO} → ${end})`;
+    const diffDays = Math.round((s - a) / MS_PER_DAY);
+  
+    // integer biweek index from anchor
+    const idx = Math.floor(diffDays / 14);
+  
+    // show negative properly but not "random"
+    const num = idx >= 0 ? idx + 1 : idx; // e.g. -1, -2 for before anchor
+  
+    return `Biweek ${num} (${startISO} → ${end})`;
   }
   
   /* Optional helpers — safe and useful for month/year views */

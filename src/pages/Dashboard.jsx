@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -29,13 +29,17 @@ import { useCloudTransactions } from "../hooks/useCloudTransactions";
 import { useCloudSettings } from "../hooks/useCloudSettings";
 import { useCloudIncomeByBiweek } from "../hooks/useCloudIncomeByBiweek";
 
+
 export default function Dashboard() {
   const { settings } = useCloudSettings();
   const { transactions } = useCloudTransactions();
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const anchorISO = settings?.anchorPaycheckStartISO || getAnchorISO();
-
+  const currentBiweekStartISO = useMemo(
+    () => getBiweekStartISO(anchorISO, todayISO),
+    [anchorISO, todayISO]
+  );
   const [view, setView] = useState("biweek");
   const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
 
@@ -44,6 +48,12 @@ export default function Dashboard() {
     getBiweekStartISO(anchorISO, todayISO)
   );
 
+  useEffect(() => {
+    // When anchor date or "today" changes,
+    // re-center the biweek selector on the current biweek
+    setBiweekStartISO(currentBiweekStartISO);
+  }, [currentBiweekStartISO]);
+  
   const [editingPaycheck, setEditingPaycheck] = useState(false);
   const [paycheckDraft, setPaycheckDraft] = useState("");
 
@@ -141,17 +151,17 @@ export default function Dashboard() {
                 onChange={(e) => setBiweekStartISO(e.target.value)}
                 style={{ minWidth: 260 }}
               >
-                {Array.from({ length: 60 }).map((_, i) => {
-                  const start = addDaysISO(
-                    getBiweekStartISO(anchorISO, todayISO),
-                    -14 * (59 - i)
-                  );
-                  return (
-                    <option key={start} value={start}>
-                      {biweekLabel(start, anchorISO)}
-                    </option>
-                  );
-                })}
+                {Array.from({ length: 120 }).map((_, i) => {
+                    // Center around "current biweek"
+                    const offset = i - 60; // 60 past, current, 59 future
+                    const start = addDaysISO(currentBiweekStartISO, offset * 14);
+                    return (
+                        <option key={start} value={start}>
+                        {biweekLabel(start, anchorISO)}
+                        </option>
+                    );
+                    })}
+
               </select>
 
               <button
