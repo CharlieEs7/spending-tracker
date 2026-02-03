@@ -1,147 +1,94 @@
+// src/layout/Shell.jsx
 import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider.jsx";
 import { useCloudSettings } from "../hooks/useCloudSettings.js";
-import { useAutoGenerateSubscriptions } from "../hooks/useAutoGenerateSubscriptions.js";
+import { useAutoGenerateSubscriptions } from "../hooks/useAutoGenerateSubs.js";
 
-
-export default function Shell() {
-  const { user, logout } = useAuth();
-
-  const { settings } = useCloudSettings();
-  useAutoGenerateSubscriptions(settings);
-
-
-  return (
-    <div style={page}>
-      {/* Header */}
-      <header style={header}>
-        <div style={headerInner}>
-          <div style={brand}>Spending Tracker</div>
-
-          {/* Navigation */}
-          <nav style={nav}>
-            <NavItem to="/">Dashboard</NavItem>
-            <NavItem to="/add">Add</NavItem>
-            <NavItem to="/transactions">Transactions</NavItem>
-            <NavItem to="/history">History</NavItem>
-            <NavItem to="/settings">Settings</NavItem>
-            <NavItem to="/subscriptions">Subscriptions</NavItem>
-          </nav>
-
-          {/* User / Logout */}
-          <div style={userBox}>
-            <div style={userName}>
-              {user?.displayName || user?.email}
-            </div>
-            <button onClick={logout} style={logoutBtn}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <main style={main}>
-        <Outlet />
-      </main>
-    </div>
-  );
-}
-
-function NavItem({ to, children }) {
+function TabLink({ to, label }) {
   return (
     <NavLink
       to={to}
-      style={({ isActive }) => ({
-        ...navLink,
-        ...(isActive ? navLinkActive : {}),
-      })}
+      end={to === "/"}
+      className={({ isActive }) =>
+        "navLink" + (isActive ? " navLinkActive" : "")
+      }
     >
-      {children}
+      {label}
     </NavLink>
   );
 }
 
-/* -------------------- styles -------------------- */
+export default function Shell() {
+  const { user, signOutUser } = useAuth();
+  const { settings } = useCloudSettings();
 
-const page = {
-  minHeight: "100vh",
-  display: "flex",
-  flexDirection: "column",
-};
+  // auto-generate subscriptions on app open (once/day)
+  useAutoGenerateSubscriptions(settings);
 
-const header = {
-  borderBottom: "1px solid #e5e7eb",
-  background: "#fff",
-  position: "sticky",
-  top: 0,
-  zIndex: 10,
-};
+  const displayName =
+    user?.displayName ||
+    user?.email?.split("@")[0] ||
+    "Account";
 
-const headerInner = {
-  maxWidth: 1200,
-  margin: "0 auto",
-  padding: "12px 16px",
-  display: "grid",
-  gridTemplateColumns: "auto 1fr auto",
-  alignItems: "center",
-  gap: 16,
-};
+  return (
+    <div className="appShell">
+      {/* Mobile top nav */}
+      <div className="mobileTopbar">
+        <div className="mobileBrand">Spending Tracker</div>
+        <div className="mobileRight">
+          <div className="userChip" title={user?.email || ""}>
+            {displayName}
+          </div>
+          <button className="btn btnGhost" onClick={signOutUser}>
+            Sign out
+          </button>
+        </div>
+      </div>
 
-const brand = {
-  fontWeight: 900,
-  fontSize: 16,
-};
+      <div className="mobileNav">
+        <TabLink to="/" label="Dashboard" />
+        <TabLink to="/add" label="Add" />
+        <TabLink to="/transactions" label="Transactions" />
+        <TabLink to="/history" label="History" />
+        <TabLink to="/settings" label="Settings" />
+        <TabLink to="/subscriptions" label="Subs" />
+      </div>
 
-const nav = {
-  display: "flex",
-  gap: 12,
-  justifyContent: "center",
-  flexWrap: "wrap",
-};
+      {/* Desktop layout */}
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brandTitle">Spending Tracker</div>
+          <div className="brandSub">Personal</div>
+        </div>
 
-const navLink = {
-  padding: "8px 12px",
-  borderRadius: 10,
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 700,
-};
+        <nav className="nav">
+          <TabLink to="/" label="Dashboard" />
+          <TabLink to="/add" label="Add" />
+          <TabLink to="/transactions" label="Transactions" />
+          <TabLink to="/history" label="History" />
+          <TabLink to="/settings" label="Settings" />
+          <TabLink to="/subscriptions" label="Subscriptions" />
+        </nav>
 
-const navLinkActive = {
-  background: "#111",
-  color: "#fff",
-};
+        <div className="sidebarFooter">
+          <div className="userRow">
+            <div className="userMeta">
+              <div className="userName">{displayName}</div>
+              <div className="userEmail">{user?.email || ""}</div>
+            </div>
+            <button className="btn btnGhost" onClick={signOutUser}>
+              Sign out
+            </button>
+          </div>
+        </div>
+      </aside>
 
-const userBox = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-};
-
-const userName = {
-  fontSize: 12,
-  color: "#6b7280",
-  maxWidth: 180,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-
-const logoutBtn = {
-  padding: "8px 12px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  background: "#fff",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const main = {
-  flex: 1,
-  maxWidth: 1200,
-  margin: "0 auto",
-  padding: 16,
-  width: "100%",
-};
+      <main className="main">
+        <div className="content">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+}
