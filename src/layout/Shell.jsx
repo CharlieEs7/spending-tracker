@@ -3,7 +3,7 @@ import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider.jsx";
 import { useCloudSettings } from "../hooks/useCloudSettings.js";
-import { useAutoGenerateSubscriptions } from "../hooks/useAutoGenerateSubs.js";
+import { useAutoGenerateSubscriptions } from "../hooks/useAutoGenerateSubscriptions.js";
 
 function TabLink({ to, label }) {
   return (
