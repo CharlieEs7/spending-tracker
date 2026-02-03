@@ -14,6 +14,8 @@ import {
   getAnchorISO,
   getBiweekStartISO,
   getBiweekEndISO,
+  addDaysISO,
+  biweekLabel,
 } from "../lib/dates";
 import {
   filterTransactions,
@@ -28,30 +30,41 @@ import { useCloudSettings } from "../hooks/useCloudSettings";
 import { useCloudIncomeByBiweek } from "../hooks/useCloudIncomeByBiweek";
 
 export default function Dashboard() {
-  const { settings, saveSettings } = useCloudSettings();
+  const { settings } = useCloudSettings();
   const { transactions } = useCloudTransactions();
 
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const anchorISO = settings?.anchorPaycheckStartISO || getAnchorISO();
+
   const [view, setView] = useState("biweek");
-  const [selectedDateISO, setSelectedDateISO] = useState(
-    new Date().toISOString().slice(0, 10)
+  const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
+
+  // 🔑 biweek is driven by biweekStartISO
+  const [biweekStartISO, setBiweekStartISO] = useState(
+    getBiweekStartISO(anchorISO, todayISO)
   );
 
   const [editingPaycheck, setEditingPaycheck] = useState(false);
   const [paycheckDraft, setPaycheckDraft] = useState("");
 
-  const anchorISO = settings?.anchorPaycheckStartISO || getAnchorISO();
-  const biweekStart = getBiweekStartISO(anchorISO, selectedDateISO);
-  const biweekEnd = getBiweekEndISO(anchorISO, selectedDateISO);
+  const biweekStart =
+    view === "biweek"
+      ? biweekStartISO
+      : getBiweekStartISO(anchorISO, selectedDateISO);
+
+  const biweekEnd =
+    view === "biweek"
+      ? getBiweekEndISO(anchorISO, biweekStartISO)
+      : getBiweekEndISO(anchorISO, selectedDateISO);
 
   const filtered = useMemo(() => {
     return filterTransactions(transactions || [], {
       view,
-      anchorISO,
       selectedDateISO,
       biweekStart,
       biweekEnd,
     });
-  }, [transactions, view, anchorISO, selectedDateISO, biweekStart, biweekEnd]);
+  }, [transactions, view, selectedDateISO, biweekStart, biweekEnd]);
 
   const spent = useMemo(() => totalSpent(filtered), [filtered]);
   const totals = useMemo(() => totalsByCategory(filtered), [filtered]);
@@ -64,7 +77,6 @@ export default function Dashboard() {
 
   const paycheck = Number(income?.amount || 0);
   const remaining = Math.max(0, paycheck - spent);
-
   const limits = settings?.categoryLimits || {};
 
   function exportCSV() {
@@ -101,15 +113,65 @@ export default function Dashboard() {
           </select>
         </Card>
 
-        {/* DATE */}
+        {/* DATE / BIWEEK */}
         <Card>
-          <Label>Pick a date</Label>
-          <input
-            type="date"
-            value={selectedDateISO}
-            onChange={(e) => setSelectedDateISO(e.target.value)}
-            className="input"
-          />
+          <Label>{view === "biweek" ? "Pick a biweek" : "Pick a date"}</Label>
+
+          {view === "biweek" ? (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <button
+                className="btn"
+                onClick={() =>
+                  setBiweekStartISO(addDaysISO(biweekStartISO, -14))
+                }
+              >
+                ← Prev
+              </button>
+
+              <select
+                className="input"
+                value={biweekStartISO}
+                onChange={(e) => setBiweekStartISO(e.target.value)}
+                style={{ minWidth: 260 }}
+              >
+                {Array.from({ length: 60 }).map((_, i) => {
+                  const start = addDaysISO(
+                    getBiweekStartISO(anchorISO, todayISO),
+                    -14 * (59 - i)
+                  );
+                  return (
+                    <option key={start} value={start}>
+                      {biweekLabel(start, anchorISO)}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <button
+                className="btn"
+                onClick={() =>
+                  setBiweekStartISO(addDaysISO(biweekStartISO, 14))
+                }
+              >
+                Next →
+              </button>
+            </div>
+          ) : (
+            <input
+              type="date"
+              value={selectedDateISO}
+              onChange={(e) => setSelectedDateISO(e.target.value)}
+              className="input"
+            />
+          )}
+
           <div style={{ marginTop: 10, fontWeight: 900 }}>
             Biweek: {biweekStart} → {biweekEnd}
           </div>
@@ -122,16 +184,17 @@ export default function Dashboard() {
             <input
               className="input"
               disabled={!editingPaycheck}
-              value={
-                editingPaycheck ? paycheckDraft : money(paycheck)
-              }
+              value={editingPaycheck ? paycheckDraft : money(paycheck)}
               onChange={(e) => setPaycheckDraft(e.target.value)}
             />
             {!editingPaycheck ? (
-              <button className="btn" onClick={() => {
-                setPaycheckDraft(String(paycheck));
-                setEditingPaycheck(true);
-              }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  setPaycheckDraft(String(paycheck));
+                  setEditingPaycheck(true);
+                }}
+              >
                 Edit
               </button>
             ) : (
@@ -170,9 +233,16 @@ export default function Dashboard() {
 
           return (
             <div key={cat} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
                 <strong>{cat}</strong>
-                <span>{money(used)} / {money(limit)}</span>
+                <span>
+                  {money(used)} / {money(limit)}
+                </span>
               </div>
               <div className="bar">
                 <div
@@ -216,7 +286,10 @@ export default function Dashboard() {
       <Card>
         <h3>Category totals</h3>
         {CATEGORY_NAMES.map((cat) => (
-          <div key={cat} style={{ display: "flex", justifyContent: "space-between" }}>
+          <div
+            key={cat}
+            style={{ display: "flex", justifyContent: "space-between" }}
+          >
             <span>{cat}</span>
             <strong>{money(totals[cat] || 0)}</strong>
           </div>
@@ -226,7 +299,7 @@ export default function Dashboard() {
   );
 }
 
-/* ---------- small helpers ---------- */
+/* ---------- helpers ---------- */
 
 function Card({ children }) {
   return (

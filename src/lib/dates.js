@@ -1,52 +1,103 @@
-const DEFAULT_ANCHOR = "2026-01-02";
+// src/lib/dates.js
+// UTC-safe date helpers to avoid timezone drift on biweeks.
 
-export function toISODateOnly(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function parseISODateOnly(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function diffDays(a, b) {
-  const msDay = 24 * 60 * 60 * 1000;
-  const utcA = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  const utcB = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
-  return Math.floor((utcA - utcB) / msDay);
-}
-
-export function getAnchorISO(settings) {
-  return settings?.anchorStartISO || DEFAULT_ANCHOR;
-}
-
-export function getBiweekStartISO(dateISO, anchorISO) {
-  const anchor = parseISODateOnly(anchorISO);
-  const d = parseISODateOnly(dateISO);
-  const daysSince = diffDays(d, anchor);
-  const index = Math.floor(daysSince / 14);
-  const start = addDays(anchor, index * 14);
-  return toISODateOnly(start);
-}
-
-export function getBiweekEndISO(startISO) {
-  const start = parseISODateOnly(startISO);
-  return toISODateOnly(addDays(start, 13));
-}
-
-export function monthKey(dateISO) {
-  return dateISO.slice(0, 7); // YYYY-MM
-}
-
-export function yearKey(dateISO) {
-  return dateISO.slice(0, 4); // YYYY
-}
+function toUTCDate(iso) {
+    // iso: "YYYY-MM-DD"
+    if (typeof iso !== "string") return null;
+    const parts = iso.split("-");
+    if (parts.length !== 3) return null;
+  
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+  
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      return null;
+    }
+  
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  
+  function toISODateUTC(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    return date.toISOString().slice(0, 10);
+  }
+  
+  export function getAnchorISO() {
+    // Default anchor start for the first paycheck (biweeks roll forward from here).
+    // You can override via Settings in Firestore with `anchorPaycheckStartISO`.
+    return "2026-01-02";
+  }
+  
+  export function addDaysISO(iso, days) {
+    const dt = toUTCDate(iso);
+    if (!dt) return "";
+    dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+    return toISODateUTC(dt);
+  }
+  
+  /**
+   * Given an anchor date and any date, return the biweek start date (YYYY-MM-DD)
+   * for the 14-day period that contains the given date.
+   */
+  export function getBiweekStartISO(anchorISO, dateISO) {
+    const anchor = toUTCDate(anchorISO);
+    const date = toUTCDate(dateISO);
+  
+    // Fail-safe: never crash
+    if (!anchor || !date) return getAnchorISO();
+  
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const diffDays = Math.floor((date - anchor) / MS_PER_DAY);
+  
+    // Number of full 14-day blocks since anchor
+    const biweekIndex = Math.floor(diffDays / 14);
+  
+    const start = new Date(anchor.getTime() + biweekIndex * 14 * MS_PER_DAY);
+    return toISODateUTC(start);
+  }
+  
+  /**
+   * Biweek end = start + 13 days (inclusive end date)
+   */
+  export function getBiweekEndISO(anchorISO, dateISO) {
+    const startISO = getBiweekStartISO(anchorISO, dateISO);
+    return addDaysISO(startISO, 13);
+  }
+  
+  /**
+   * Nice label for dropdown: "Biweek N (YYYY-MM-DD → YYYY-MM-DD)"
+   */
+  export function biweekLabel(startISO, anchorISO) {
+    const a = toUTCDate(anchorISO);
+    const s = toUTCDate(startISO);
+    if (!a || !s) {
+      const end = addDaysISO(startISO, 13);
+      return `Biweek (${startISO} → ${end})`;
+    }
+  
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const idx = Math.floor((s - a) / (14 * MS_PER_DAY));
+    const end = addDaysISO(startISO, 13);
+    return `Biweek ${idx + 1} (${startISO} → ${end})`;
+  }
+  
+  /* Optional helpers — safe and useful for month/year views */
+  export function yearKey(iso) {
+    const s = typeof iso === "string" ? iso : "";
+    return s.slice(0, 4);
+  }
+  
+  export function monthKey(iso) {
+    const s = typeof iso === "string" ? iso : "";
+    return s.slice(0, 7);
+  }
+  
+  // Compatibility helper (used by AddSpending.jsx)
+export function toISODateOnly(date = new Date()) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toISOString().slice(0, 10);
+  }
+  
