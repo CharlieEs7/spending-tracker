@@ -1,94 +1,115 @@
-// src/layout/Shell.jsx
 import React from "react";
-import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider.jsx";
-import { useCloudSettings } from "../hooks/useCloudSettings.js";
-import { useAutoGenerateSubscriptions } from "../hooks/useAutoGenerateSubscriptions.js";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import { auth } from "../lib/firebase.js";
 
-function TabLink({ to, label }) {
-  return (
-    <NavLink
-      to={to}
-      end={to === "/"}
-      className={({ isActive }) =>
-        "navLink" + (isActive ? " navLinkActive" : "")
-      }
-    >
-      {label}
-    </NavLink>
-  );
-}
-
-export default function Shell() {
-  const { user, signOutUser } = useAuth();
-  const { settings } = useCloudSettings();
-
-  // auto-generate subscriptions on app open (once/day)
-  useAutoGenerateSubscriptions(settings);
-
-  const displayName =
-    user?.displayName ||
-    user?.email?.split("@")[0] ||
-    "Account";
+function Tabs() {
+  const tabs = [
+    { to: "/", label: "Dashboard" },
+    { to: "/add", label: "Add" },
+    { to: "/transactions", label: "Transactions" },
+    { to: "/history", label: "History" },
+    { to: "/settings", label: "Settings" },
+    { to: "/subscriptions", label: "Subs" },
+  ];
 
   return (
-    <div className="appShell">
-      {/* Mobile top nav */}
-      <div className="mobileTopbar">
-        <div className="mobileBrand">Spending Tracker</div>
-        <div className="mobileRight">
-          <div className="userChip" title={user?.email || ""}>
-            {displayName}
-          </div>
-          <button className="btn btnGhost" onClick={signOutUser}>
-            Sign out
-          </button>
-        </div>
-      </div>
+    <>
+      {/* Mobile nav: shows on small screens */}
+      <nav className="mobileNav" aria-label="Primary">
+        {tabs.map((t) => (
+          <NavLink
+            key={t.to}
+            to={t.to}
+            end={t.to === "/"}
+            className={({ isActive }) =>
+              isActive ? "mobileNavLink active" : "mobileNavLink"
+            }
+          >
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
 
-      <div className="mobileNav">
-        <TabLink to="/" label="Dashboard" />
-        <TabLink to="/add" label="Add" />
-        <TabLink to="/transactions" label="Transactions" />
-        <TabLink to="/history" label="History" />
-        <TabLink to="/settings" label="Settings" />
-        <TabLink to="/subscriptions" label="Subs" />
-      </div>
-
-      {/* Desktop layout */}
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brandTitle">Spending Tracker</div>
-          <div className="brandSub">Personal</div>
+      {/* Desktop sidebar: shows on large screens */}
+      <aside className="sidebar" aria-label="Sidebar">
+        <div className="sidebarBrand">
+          <div className="sidebarTitle">Spending Tracker</div>
+          <div className="sidebarSub">Personal</div>
         </div>
 
-        <nav className="nav">
-          <TabLink to="/" label="Dashboard" />
-          <TabLink to="/add" label="Add" />
-          <TabLink to="/transactions" label="Transactions" />
-          <TabLink to="/history" label="History" />
-          <TabLink to="/settings" label="Settings" />
-          <TabLink to="/subscriptions" label="Subscriptions" />
-        </nav>
+        <div className="sidebarNav">
+          {tabs.map((t) => (
+            <NavLink
+              key={t.to}
+              to={t.to}
+              end={t.to === "/"}
+              className={({ isActive }) =>
+                isActive ? "sideLink active" : "sideLink"
+              }
+            >
+              {t.label}
+            </NavLink>
+          ))}
+        </div>
 
         <div className="sidebarFooter">
-          <div className="userRow">
+          <div className="userCard">
             <div className="userMeta">
-              <div className="userName">{displayName}</div>
-              <div className="userEmail">{user?.email || ""}</div>
+              <div className="userName">{auth.currentUser?.displayName || "User"}</div>
+              <div className="userEmail">{auth.currentUser?.email || ""}</div>
             </div>
-            <button className="btn btnGhost" onClick={signOutUser}>
+
+            <button
+              className="btn btnGhost"
+              onClick={() => signOut(auth)}
+              type="button"
+            >
               Sign out
             </button>
           </div>
         </div>
       </aside>
+    </>
+  );
+}
 
-      <main className="main">
-        <div className="content">
-          <Outlet />
+export default function Shell() {
+  const location = useLocation();
+
+  return (
+    <div className="shell">
+      <header className="topBar">
+        <div className="topLeft">
+          <div className="topTitle">Spending Tracker</div>
         </div>
-      </main>
+
+        <div className="topRight">
+          <div className="topPill">
+            {auth.currentUser?.displayName
+              ? auth.currentUser.displayName.length > 12
+                ? auth.currentUser.displayName.slice(0, 12) + "…"
+                : auth.currentUser.displayName
+              : "User"}
+          </div>
+
+          <button
+            className="btn btnPrimaryOutline"
+            onClick={() => signOut(auth)}
+            type="button"
+          >
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      <div className="shellBody">
+        <Tabs />
+
+        <main className="content" key={location.pathname}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
